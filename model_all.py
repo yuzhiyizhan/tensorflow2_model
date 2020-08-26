@@ -953,45 +953,303 @@ class SqueezeNet(object):
         return model
 
 
+# inception
+class Inception(object):
+    @staticmethod
+    def BasicConv2D(inputs, filters, kernel_size, strides, padding, training=None, **kwargs):
+        x = tf.keras.layers.Conv2D(filters=filters,
+                                   kernel_size=kernel_size,
+                                   strides=strides,
+                                   padding=padding)(inputs)
+        x = tf.keras.layers.BatchNormalization()(x, training)
+        x = tf.nn.relu(x)
+        return x
+
+    @staticmethod
+    def Conv2DLinear(inputs, filters, kernel_size, strides, padding, training=None, **kwargs):
+        x = tf.keras.layers.Conv2D(filters=filters,
+                                   kernel_size=kernel_size,
+                                   strides=strides,
+                                   padding=padding)(inputs)
+        x = tf.keras.layers.BatchNormalization()(x, training)
+        return x
+
+    @staticmethod
+    def Stem(inputs, training=None, **kwargs):
+        x = Inception.BasicConv2D(inputs, filters=32,
+                                  kernel_size=(3, 3),
+                                  strides=2,
+                                  padding='valid', training=training)
+        x = Inception.BasicConv2D(x, filters=32,
+                                  kernel_size=(3, 3),
+                                  strides=1,
+                                  padding='valid', training=training)
+        x = Inception.BasicConv2D(x, filters=64,
+                                  kernel_size=(3, 3),
+                                  strides=1,
+                                  padding='same', training=training)
+        branch_1 = tf.keras.layers.MaxPool2D(pool_size=(3, 3),
+                                             strides=2,
+                                             padding="valid")(x)
+        branch_2 = Inception.BasicConv2D(x, filters=96,
+                                         kernel_size=(3, 3),
+                                         strides=2,
+                                         padding="valid", training=training)
+        x = tf.concat(values=[branch_1, branch_2], axis=-1)
+        branch_3 = Inception.BasicConv2D(x, filters=64,
+                                         kernel_size=(1, 1),
+                                         strides=1,
+                                         padding="same", training=training)
+        branch_3 = Inception.BasicConv2D(branch_3, filters=96,
+                                         kernel_size=(3, 3),
+                                         strides=1,
+                                         padding="valid", training=training)
+        branch_4 = Inception.BasicConv2D(x, filters=64,
+                                         kernel_size=(1, 1),
+                                         strides=1,
+                                         padding="same", training=training)
+        branch_4 = Inception.BasicConv2D(branch_4, filters=64,
+                                         kernel_size=(7, 1),
+                                         strides=1,
+                                         padding="same", training=training)
+        branch_4 = Inception.BasicConv2D(branch_4, filters=64,
+                                         kernel_size=(1, 7),
+                                         strides=1,
+                                         padding="same", training=training)
+        branch_4 = Inception.BasicConv2D(branch_4, filters=96,
+                                         kernel_size=(3, 3),
+                                         strides=1,
+                                         padding="valid", training=training)
+        x = tf.concat(values=[branch_3, branch_4], axis=-1)
+        branch_5 = Inception.BasicConv2D(x, filters=192,
+                                         kernel_size=(3, 3),
+                                         strides=2,
+                                         padding="valid", training=training)
+        branch_6 = tf.keras.layers.MaxPool2D(pool_size=(3, 3),
+                                             strides=2,
+                                             padding="valid")(x)
+        return tf.concat(values=[branch_5, branch_6], axis=-1)
+
+    @staticmethod
+    def ReductionA(inputs, k, l, m, n, training=None, **kwargs):
+        b1 = tf.keras.layers.MaxPool2D(pool_size=(3, 3),
+                                       strides=2,
+                                       padding="valid")(inputs)
+        b2 = Inception.BasicConv2D(inputs, filters=n,
+                                   kernel_size=(3, 3),
+                                   strides=2,
+                                   padding="valid", training=training)
+        b3 = Inception.BasicConv2D(inputs, filters=k,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        b3 = Inception.BasicConv2D(b3, filters=l,
+                                   kernel_size=(3, 3),
+                                   strides=1,
+                                   padding="same", training=training)
+        b3 = Inception.BasicConv2D(b3, filters=m,
+                                   kernel_size=(3, 3),
+                                   strides=2,
+                                   padding="valid", training=training)
+        return tf.concat(values=[b1, b2, b3], axis=-1)
+
+    @staticmethod
+    def InceptionResNetA(inputs, training=None, **kwargs):
+        b1 = Inception.BasicConv2D(inputs, filters=32,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        b2 = Inception.BasicConv2D(inputs, filters=32,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        b2 = Inception.BasicConv2D(b2, filters=32,
+                                   kernel_size=(3, 3),
+                                   strides=1,
+                                   padding="same", training=training)
+        b3 = Inception.BasicConv2D(inputs, filters=32,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        b3 = Inception.BasicConv2D(b3, filters=48,
+                                   kernel_size=(3, 3),
+                                   strides=1,
+                                   padding="same", training=training)
+        b3 = Inception.BasicConv2D(b3, filters=64,
+                                   kernel_size=(3, 3),
+                                   strides=1,
+                                   padding="same", training=training)
+        x = tf.concat(values=[b1, b2, b3], axis=-1)
+        x = Inception.Conv2DLinear(x, filters=384,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        output = tf.keras.layers.add([x, inputs])
+        return tf.nn.relu(output)
+
+    @staticmethod
+    def InceptionResNetB(inputs, training=None, **kwargs):
+        b1 = Inception.BasicConv2D(inputs, filters=192,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        b2 = Inception.BasicConv2D(inputs, filters=128,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        b2 = Inception.BasicConv2D(b2, filters=160,
+                                   kernel_size=(1, 7),
+                                   strides=1,
+                                   padding="same", training=training)
+        b2 = Inception.BasicConv2D(b2, filters=192,
+                                   kernel_size=(7, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        x = tf.concat(values=[b1, b2], axis=-1)
+        x = Inception.Conv2DLinear(x, filters=1152,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        output = tf.keras.layers.add([x, inputs])
+        return tf.nn.relu(output)
+
+    @staticmethod
+    def InceptionResNetC(inputs, training=None, **kwargs):
+        b1 = Inception.BasicConv2D(inputs, filters=192,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        b2 = Inception.BasicConv2D(inputs, filters=192,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        b2 = Inception.BasicConv2D(b2, filters=224,
+                                   kernel_size=(1, 3),
+                                   strides=1,
+                                   padding="same", training=training)
+        b2 = Inception.BasicConv2D(b2, filters=256,
+                                   kernel_size=(3, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        x = tf.concat(values=[b1, b2], axis=-1)
+        x = Inception.Conv2DLinear(x, filters=2144,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        output = tf.keras.layers.add([x, inputs])
+        return tf.nn.relu(output)
+
+    @staticmethod
+    def ReductionB(inputs, training=None, **kwargs):
+        b1 = tf.keras.layers.MaxPool2D(pool_size=(3, 3),
+                                       strides=2,
+                                       padding="valid")(inputs)
+        b2 = Inception.BasicConv2D(inputs, filters=256,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        b2 = Inception.BasicConv2D(b2, filters=384,
+                                   kernel_size=(3, 3),
+                                   strides=2,
+                                   padding="valid", training=training)
+        b3 = Inception.BasicConv2D(inputs, filters=256,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        b3 = Inception.BasicConv2D(b3, filters=288,
+                                   kernel_size=(3, 3),
+                                   strides=2,
+                                   padding="valid", training=training)
+        b4 = Inception.BasicConv2D(inputs, filters=256,
+                                   kernel_size=(1, 1),
+                                   strides=1,
+                                   padding="same", training=training)
+        b4 = Inception.BasicConv2D(b4, filters=288,
+                                   kernel_size=(3, 3),
+                                   strides=1,
+                                   padding="same", training=training)
+        b4 = Inception.BasicConv2D(b4, filters=320,
+                                   kernel_size=(3, 3),
+                                   strides=2,
+                                   padding="valid", training=training)
+        return tf.concat(values=[b1, b2, b3, b4], axis=-1)
+
+    @staticmethod
+    def build_inception_resnet_a(x, n):
+        for _ in range(n):
+            x = Inception.InceptionResNetA(x)
+        return x
+
+    @staticmethod
+    def build_inception_resnet_b(x, n):
+        for _ in range(n):
+            x = Inception.InceptionResNetB(x)
+        return x
+
+    @staticmethod
+    def build_inception_resnet_c(x, n):
+        for _ in range(n):
+            x = Inception.InceptionResNetC(x)
+        return x
+
+    @staticmethod
+    def InceptionResNetV2(training=None, mask=None):
+        inputs = tf.keras.layers.Input(shape=inputs_shape)
+        x = Inception.Stem(inputs)
+        x = Inception.build_inception_resnet_a(x, 5)
+        x = Inception.ReductionA(x, k=256, l=256, m=384, n=384)
+        x = Inception.build_inception_resnet_b(x, 10)
+        x = Inception.ReductionB(x)
+        x = Inception.build_inception_resnet_c(x, 5)
+        x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))(x)
+        x = tf.keras.layers.Dropout(rate=0.2)(x)
+        x = tf.keras.layers.Flatten()(x)
+        outputs = tf.keras.layers.Dense(units=NUM_CLASSES,
+                                        activation=tf.keras.activations.softmax)(x)
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        return model
+
+
 if __name__ == '__main__':
     pass
-    Densenet_121 = Densenet.Densenet(num_init_features=64, growth_rate=32, block_layers=[6, 12, 24, 16],
-                                     compression_rate=0.5,
-                                     drop_rate=0.5)
-    Densenet_169 = Densenet.Densenet(num_init_features=64, growth_rate=32, block_layers=[6, 12, 32, 32],
-                                     compression_rate=0.5,
-                                     drop_rate=0.5)
-    Densenet_201 = Densenet.Densenet(num_init_features=64, growth_rate=32, block_layers=[6, 12, 48, 32],
-                                     compression_rate=0.5,
-                                     drop_rate=0.5)
-    Densenet_264 = Densenet.Densenet(num_init_features=64, growth_rate=32, block_layers=[6, 12, 64, 48],
-                                     compression_rate=0.5,
-                                     drop_rate=0.5)
-    Efficient_net_b0 = Efficientnet.Efficientnet(width_coefficient=1.0, depth_coefficient=1.0, dropout_rate=0.2)
-    Efficient_net_b1 = Efficientnet.Efficientnet(width_coefficient=1.0, depth_coefficient=1.1, dropout_rate=0.2)
-    Efficient_net_b2 = Efficientnet.Efficientnet(width_coefficient=1.1, depth_coefficient=1.2, dropout_rate=0.3)
-    Efficient_net_b3 = Efficientnet.Efficientnet(width_coefficient=1.2, depth_coefficient=1.4, dropout_rate=0.3)
-    Efficient_net_b4 = Efficientnet.Efficientnet(width_coefficient=1.4, depth_coefficient=1.8, dropout_rate=0.4)
-    Efficient_net_b5 = Efficientnet.Efficientnet(width_coefficient=1.6, depth_coefficient=2.2, dropout_rate=0.4)
-    Efficient_net_b6 = Efficientnet.Efficientnet(width_coefficient=1.8, depth_coefficient=2.6, dropout_rate=0.5)
-    Efficient_net_b7 = Efficientnet.Efficientnet(width_coefficient=2.0, depth_coefficient=3.1, dropout_rate=0.5)
-    MobileNetV1 = Mobilenet.MobileNetV1()
-    MobileNetV2 = Mobilenet.MobileNetV2()
-    MobileNetV3Large = Mobilenet.MobileNetV3Large()
-    MobileNetV3Small = Mobilenet.MobileNetV3Small()
-    Resnet_18 = ResNeXt.ResNetTypeI(layer_params=(2, 2, 2, 2))
-    Resnet_34 = ResNeXt.ResNetTypeI(layer_params=(3, 4, 6, 3))
-    Resnet_50 = ResNeXt.ResNetTypeII(layer_params=(3, 4, 6, 3))
-    Resnet_101 = ResNeXt.ResNetTypeII(layer_params=(3, 4, 23, 3))
-    Resnet_152 = ResNeXt.ResNetTypeII(layer_params=(3, 8, 36, 3))
-    ResNeXt50 = ResNeXt.Resnext(repeat_num_list=(3, 4, 6, 3), cardinality=32)
-    ResNeXt101 = ResNeXt.Resnext(repeat_num_list=(3, 4, 23, 3), cardinality=32)
-    SEResNet50 = SEResNet.SEResNet(block_num=[3, 4, 6, 3])
-    SEResNet152 = SEResNet.SEResNet(block_num=[3, 8, 36, 3])
-    ShuffleNet_0_5x = ShuffleNetV2.ShuffleNetV2(channel_scale=[48, 96, 192, 1024])
-    ShuffleNet_1_0x = ShuffleNetV2.ShuffleNetV2(channel_scale=[116, 232, 464, 1024])
-    ShuffleNet_1_5x = ShuffleNetV2.ShuffleNetV2(channel_scale=[176, 352, 704, 1024])
-    ShuffleNet_2_0x = ShuffleNetV2.ShuffleNetV2(channel_scale=[244, 488, 976, 2048])
-    SqueezeNet = SqueezeNet.SqueezeNet()
-    SqueezeNet._layers = [layer for layer in SqueezeNet.layers if not isinstance(layer, dict)]
-    tf.keras.utils.plot_model(SqueezeNet, to_file='SqueezeNet.png', show_shapes=True, dpi=48)
+    # Densenet_121 = Densenet.Densenet(num_init_features=64, growth_rate=32, block_layers=[6, 12, 24, 16],
+    #                                  compression_rate=0.5,
+    #                                  drop_rate=0.5)
+    # Densenet_169 = Densenet.Densenet(num_init_features=64, growth_rate=32, block_layers=[6, 12, 32, 32],
+    #                                  compression_rate=0.5,
+    #                                  drop_rate=0.5)
+    # Densenet_201 = Densenet.Densenet(num_init_features=64, growth_rate=32, block_layers=[6, 12, 48, 32],
+    #                                  compression_rate=0.5,
+    #                                  drop_rate=0.5)
+    # Densenet_264 = Densenet.Densenet(num_init_features=64, growth_rate=32, block_layers=[6, 12, 64, 48],
+    #                                  compression_rate=0.5,
+    #                                  drop_rate=0.5)
+    # Efficient_net_b0 = Efficientnet.Efficientnet(width_coefficient=1.0, depth_coefficient=1.0, dropout_rate=0.2)
+    # Efficient_net_b1 = Efficientnet.Efficientnet(width_coefficient=1.0, depth_coefficient=1.1, dropout_rate=0.2)
+    # Efficient_net_b2 = Efficientnet.Efficientnet(width_coefficient=1.1, depth_coefficient=1.2, dropout_rate=0.3)
+    # Efficient_net_b3 = Efficientnet.Efficientnet(width_coefficient=1.2, depth_coefficient=1.4, dropout_rate=0.3)
+    # Efficient_net_b4 = Efficientnet.Efficientnet(width_coefficient=1.4, depth_coefficient=1.8, dropout_rate=0.4)
+    # Efficient_net_b5 = Efficientnet.Efficientnet(width_coefficient=1.6, depth_coefficient=2.2, dropout_rate=0.4)
+    # Efficient_net_b6 = Efficientnet.Efficientnet(width_coefficient=1.8, depth_coefficient=2.6, dropout_rate=0.5)
+    # Efficient_net_b7 = Efficientnet.Efficientnet(width_coefficient=2.0, depth_coefficient=3.1, dropout_rate=0.5)
+    # MobileNetV1 = Mobilenet.MobileNetV1()
+    # MobileNetV2 = Mobilenet.MobileNetV2()
+    # MobileNetV3Large = Mobilenet.MobileNetV3Large()
+    # MobileNetV3Small = Mobilenet.MobileNetV3Small()
+    # Resnet_18 = ResNeXt.ResNetTypeI(layer_params=(2, 2, 2, 2))
+    # Resnet_34 = ResNeXt.ResNetTypeI(layer_params=(3, 4, 6, 3))
+    # Resnet_50 = ResNeXt.ResNetTypeII(layer_params=(3, 4, 6, 3))
+    # Resnet_101 = ResNeXt.ResNetTypeII(layer_params=(3, 4, 23, 3))
+    # Resnet_152 = ResNeXt.ResNetTypeII(layer_params=(3, 8, 36, 3))
+    # ResNeXt50 = ResNeXt.Resnext(repeat_num_list=(3, 4, 6, 3), cardinality=32)
+    # ResNeXt101 = ResNeXt.Resnext(repeat_num_list=(3, 4, 23, 3), cardinality=32)
+    # SEResNet50 = SEResNet.SEResNet(block_num=[3, 4, 6, 3])
+    # SEResNet152 = SEResNet.SEResNet(block_num=[3, 8, 36, 3])
+    # ShuffleNet_0_5x = ShuffleNetV2.ShuffleNetV2(channel_scale=[48, 96, 192, 1024])
+    # ShuffleNet_1_0x = ShuffleNetV2.ShuffleNetV2(channel_scale=[116, 232, 464, 1024])
+    # ShuffleNet_1_5x = ShuffleNetV2.ShuffleNetV2(channel_scale=[176, 352, 704, 1024])
+    # ShuffleNet_2_0x = ShuffleNetV2.ShuffleNetV2(channel_scale=[244, 488, 976, 2048])
+    # SqueezeNet = SqueezeNet.SqueezeNet()
+    InceptionResNetV2 = Inception.InceptionResNetV2()
+    InceptionResNetV2._layers = [layer for layer in InceptionResNetV2.layers if not isinstance(layer, dict)]
+    tf.keras.utils.plot_model(InceptionResNetV2, to_file='InceptionResNetV2.png', show_shapes=True, dpi=48)
