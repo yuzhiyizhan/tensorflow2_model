@@ -1210,6 +1210,170 @@ class Inception(object):
         return model
 
 
+# MnasNet
+class MnasNet(object):
+    @staticmethod
+    # Convolution with batch normalization
+    def conv_bn(x, filters, kernel_size, strides=1, alpha=1, activation=True):
+        """Convolution Block
+      This function defines a 2D convolution operation with BN and relu6.
+      # Arguments
+          x: Tensor, input tensor of conv layer.
+          filters: Integer, the dimensionality of the output space.
+          kernel_size: An integer or tuple/list of 2 integers, specifying the
+              width and height of the 2D convolution window.
+          strides: An integer or tuple/list of 2 integers,
+              specifying the strides of the convolution along the width and height.
+              Can be a single integer to specify the same value for
+              all spatial dimensions.
+          alpha: An integer which multiplies the filters dimensionality
+          activation: A boolean which indicates whether to have an activation after the normalization
+      # Returns
+          Output tensor.
+      """
+        filters = MnasNet._make_divisible(filters * alpha)
+        x = tf.keras.layers.Conv2D(filters=filters, kernel_size=kernel_size, strides=strides, padding='same',
+                                   use_bias=False, kernel_regularizer=tf.keras.regularizers.l2(l=0.0003))(x)
+        x = tf.keras.layers.BatchNormalization(epsilon=1e-3, momentum=0.999)(x)
+        if activation:
+            x = tf.keras.layers.ReLU(max_value=6)(x)
+        return x
+
+    @staticmethod
+    # Depth-wise Separable Convolution with batch normalization
+    def depthwiseConv_bn(x, depth_multiplier, kernel_size, strides=1):
+        """ Depthwise convolution
+      The DepthwiseConv2D is just the first step of the Depthwise Separable convolution (without the pointwise step).
+      Depthwise Separable convolutions consists in performing just the first step in a depthwise spatial convolution
+      (which acts on each input channel separately).
+
+      This function defines a 2D Depthwise separable convolution operation with BN and relu6.
+      # Arguments
+          x: Tensor, input tensor of conv layer.
+          filters: Integer, the dimensionality of the output space.
+          kernel_size: An integer or tuple/list of 2 integers, specifying the
+              width and height of the 2D convolution window.
+          strides: An integer or tuple/list of 2 integers,
+              specifying the strides of the convolution along the width and height.
+              Can be a single integer to specify the same value for
+              all spatial dimensions.
+      # Returns
+          Output tensor.
+      """
+
+        x = tf.keras.layers.DepthwiseConv2D(kernel_size=kernel_size, strides=strides, depth_multiplier=depth_multiplier,
+                                            padding='same', use_bias=False,
+                                            kernel_regularizer=tf.keras.regularizers.l2(l=0.0003))(x)
+        x = tf.keras.layers.BatchNormalization(epsilon=1e-3, momentum=0.999)(x)
+        x = tf.keras.layers.ReLU(max_value=6)(x)
+        return x
+
+    @staticmethod
+    def sepConv_bn_noskip(x, filters, kernel_size, strides=1):
+        """ Separable convolution block (Block F of MNasNet paper https://arxiv.org/pdf/1807.11626.pdf)
+
+      # Arguments
+          x: Tensor, input tensor of conv layer.
+          filters: Integer, the dimensionality of the output space.
+          kernel_size: An integer or tuple/list of 2 integers, specifying the
+              width and height of the 2D convolution window.
+          strides: An integer or tuple/list of 2 integers,
+              specifying the strides of the convolution along the width and height.
+              Can be a single integer to specify the same value for
+              all spatial dimensions.
+      # Returns
+          Output tensor.
+      """
+
+        x = MnasNet.depthwiseConv_bn(x, depth_multiplier=1, kernel_size=kernel_size, strides=strides)
+        x = MnasNet.conv_bn(x, filters=filters, kernel_size=1, strides=1)
+
+        return x
+
+    @staticmethod
+    # Inverted bottleneck block with identity skip connection
+    def MBConv_idskip(x_input, filters, kernel_size, strides=1, filters_multiplier=1, alpha=1):
+        """ Mobile inverted bottleneck convolution (Block b, c, d, e of MNasNet paper https://arxiv.org/pdf/1807.11626.pdf)
+
+      # Arguments
+          x: Tensor, input tensor of conv layer.
+          filters: Integer, the dimensionality of the output space.
+          kernel_size: An integer or tuple/list of 2 integers, specifying the
+              width and height of the 2D convolution window.
+          strides: An integer or tuple/list of 2 integers,
+              specifying the strides of the convolution along the width and height.
+              Can be a single integer to specify the same value for
+              all spatial dimensions.
+          alpha: An integer which multiplies the filters dimensionality
+      # Returns
+          Output tensor.
+      """
+
+        depthwise_conv_filters = MnasNet._make_divisible(x_input.shape[3])
+        pointwise_conv_filters = MnasNet._make_divisible(filters * alpha)
+
+        x = MnasNet.conv_bn(x_input, filters=depthwise_conv_filters * filters_multiplier, kernel_size=1, strides=1)
+        x = MnasNet.depthwiseConv_bn(x, depth_multiplier=1, kernel_size=kernel_size, strides=strides)
+        x = MnasNet.conv_bn(x, filters=pointwise_conv_filters, kernel_size=1, strides=1, activation=False)
+
+        # Residual connection if possible
+        if strides == 1 and x.shape[3] == x_input.shape[3]:
+            return tf.keras.layers.add([x_input, x])
+        else:
+            return x
+
+    @staticmethod
+    # This function is taken from the original tf repo.
+    # It ensures that all layers have a channel number that is divisible by 8
+    # It can be seen here:
+    # https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet/mobilenet.py
+    def _make_divisible(v, divisor=8, min_value=None):
+        if min_value is None:
+            min_value = divisor
+        new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+        # Make sure that round down does not go down by more than 10%.
+        if new_v < 0.9 * v:
+            new_v += divisor
+        return new_v
+
+    @staticmethod
+    def MnasNet():
+        alpha = 1
+        inputs = tf.keras.layers.Input(shape=inputs_shape)
+
+        x = MnasNet.conv_bn(inputs, 32 * alpha, 3, strides=2)
+        x = MnasNet.sepConv_bn_noskip(x, 16 * alpha, 3, strides=1)
+        # MBConv3 3x3
+        x = MnasNet.MBConv_idskip(x, filters=24, kernel_size=3, strides=2, filters_multiplier=3, alpha=alpha)
+        x = MnasNet.MBConv_idskip(x, filters=24, kernel_size=3, strides=1, filters_multiplier=3, alpha=alpha)
+        x = MnasNet.MBConv_idskip(x, filters=24, kernel_size=3, strides=1, filters_multiplier=3, alpha=alpha)
+        # MBConv3 5x5
+        x = MnasNet.MBConv_idskip(x, filters=40, kernel_size=5, strides=2, filters_multiplier=3, alpha=alpha)
+        x = MnasNet.MBConv_idskip(x, filters=40, kernel_size=5, strides=1, filters_multiplier=3, alpha=alpha)
+        x = MnasNet.MBConv_idskip(x, filters=40, kernel_size=5, strides=1, filters_multiplier=3, alpha=alpha)
+        # MBConv6 5x5
+        x = MnasNet.MBConv_idskip(x, filters=80, kernel_size=5, strides=2, filters_multiplier=6, alpha=alpha)
+        x = MnasNet.MBConv_idskip(x, filters=80, kernel_size=5, strides=1, filters_multiplier=6, alpha=alpha)
+        x = MnasNet.MBConv_idskip(x, filters=80, kernel_size=5, strides=1, filters_multiplier=6, alpha=alpha)
+        # MBConv6 3x3
+        x = MnasNet.MBConv_idskip(x, filters=96, kernel_size=3, strides=1, filters_multiplier=6, alpha=alpha)
+        x = MnasNet.MBConv_idskip(x, filters=96, kernel_size=3, strides=1, filters_multiplier=6, alpha=alpha)
+        # MBConv6 5x5
+        x = MnasNet.MBConv_idskip(x, filters=192, kernel_size=5, strides=2, filters_multiplier=6, alpha=alpha)
+        x = MnasNet.MBConv_idskip(x, filters=192, kernel_size=5, strides=1, filters_multiplier=6, alpha=alpha)
+        x = MnasNet.MBConv_idskip(x, filters=192, kernel_size=5, strides=1, filters_multiplier=6, alpha=alpha)
+        x = MnasNet.MBConv_idskip(x, filters=192, kernel_size=5, strides=1, filters_multiplier=6, alpha=alpha)
+        # MBConv6 3x3
+        x = MnasNet.MBConv_idskip(x, filters=320, kernel_size=3, strides=1, filters_multiplier=6, alpha=alpha)
+
+        # FC + POOL
+        x = MnasNet.conv_bn(x, filters=1152 * alpha, kernel_size=1, strides=1)
+        x = tf.keras.layers.GlobalAveragePooling2D()(x)
+        predictions = tf.keras.layers.Dense(NUM_CLASSES, activation='softmax')(x)
+
+        return tf.keras.models.Model(inputs=inputs, outputs=predictions)
+
+
 if __name__ == '__main__':
     pass
     # Densenet_121 = Densenet.Densenet(num_init_features=64, growth_rate=32, block_layers=[6, 12, 24, 16],
@@ -1250,6 +1414,7 @@ if __name__ == '__main__':
     # ShuffleNet_1_5x = ShuffleNetV2.ShuffleNetV2(channel_scale=[176, 352, 704, 1024])
     # ShuffleNet_2_0x = ShuffleNetV2.ShuffleNetV2(channel_scale=[244, 488, 976, 2048])
     # SqueezeNet = SqueezeNet.SqueezeNet()
-    InceptionResNetV2 = Inception.InceptionResNetV2()
-    InceptionResNetV2._layers = [layer for layer in InceptionResNetV2.layers if not isinstance(layer, dict)]
-    tf.keras.utils.plot_model(InceptionResNetV2, to_file='InceptionResNetV2.png', show_shapes=True, dpi=48)
+    # InceptionResNetV2 = Inception.InceptionResNetV2()
+    # MnasNet = MnasNet.MnasNet()
+    # MnasNet._layers = [layer for layer in MnasNet.layers if not isinstance(layer, dict)]
+    # tf.keras.utils.plot_model(MnasNet, to_file='MnasNet.png', show_shapes=True, dpi=48)
